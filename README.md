@@ -15,12 +15,13 @@ Where
   List of build-in events:
   - maps -- memory for process
   - mem -- memory for whole system
-  - io -- read/write bytes for processu
+  - io -- read/write bytes for process
   - cpu -- user/kernel/usage time for process
   - net -- recieve/transmit for every net devies for process (works bad)
 - `<program>` -- any program with its arguments. Not a string
 
-Needs directory named plots in the program path. Plots will be saved there.
+Plots will be saved in the directory `plots` in the program path.
+Also program creates file `perf.pipe` while running and deletes it at the end.
 
 ## Building
 Requerments:

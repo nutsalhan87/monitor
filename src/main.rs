@@ -7,7 +7,7 @@ mod util;
 use std::{
     env,
     error::Error,
-    fs::File,
+    fs::{File, self},
     process::{Child, Command, Stdio},
     sync::mpsc,
     thread,
@@ -107,6 +107,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !nix::unistd::geteuid().is_root() {
         Err("User must have root privileges")?
     }
+    if let Err(_) = fs::read_dir("plots") {
+        fs::create_dir("plots")?;
+    }
 
     let (sender, reciever) = mpsc::channel::<Event>();
     let mut args = parse_args()?;
@@ -116,15 +119,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         thread::spawn(move || prof.profiler(args.freq_millis, pid, sender));
     }
 
-    args.subprocess.wait().unwrap();
+    args.subprocess.wait()?;
     let mut events = Vec::new();
     while let Ok(event) = reciever.recv_timeout(Duration::from_millis(1)) {
         events.push(event);
     }
     if args.perf_flag {
-        let mut perf_events = PerfStat::new(File::open("perf.pipe").unwrap());
+        let mut perf_events = PerfStat::new(File::open("perf.pipe")?);
         events.append(&mut perf_events);
-        std::fs::remove_file("perf.pipe").unwrap();
+        std::fs::remove_file("perf.pipe")?;
     }
     events.sort_by_key(|v| v.timestamp_millis);
 
