@@ -20,6 +20,8 @@ Where
   - net -- recieve/transmit for every net devies for process (works bad)
 - `<program>` -- any program with its arguments. Not a string
 
+Needs directory named plots in the program path. Plots will be saved there.
+
 ## Building
 Requerments:
 - perf tool for -p key
@@ -29,6 +31,3 @@ Requerments:
 - freetype
 
 Build with `cargo build --release`
-
-# Using
-Needs directory named `plots` in the program path. Plots will be saved there.
