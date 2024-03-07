@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{read_dir, read_to_string},
-    sync::mpsc::Sender,
+    sync::{mpsc::Sender, RwLock, Arc},
     thread,
     time::{Duration, Instant},
 };
@@ -11,11 +11,17 @@ use super::{Event, Prof};
 pub struct ProcNet {}
 
 impl Prof for ProcNet {
-    fn profiler(&self, freq_millis: u32, pid: u32, sender: Sender<Event>) {
+    fn profiler(
+        &self,
+        freq_millis: u32,
+        pid: u32,
+        sender: Sender<Event>,
+        is_program_end: Arc<RwLock<bool>>,
+    ) {
         let start_time = Instant::now();
         let mut net_devs_stat_prev = HashMap::new();
         net(pid, &mut net_devs_stat_prev);
-        loop {
+        while !*is_program_end.read().unwrap() {
             thread::sleep(Duration::from_millis(freq_millis as u64));
             let mut net_devs_stat = HashMap::new();
             let timestamp_millis = Instant::now().duration_since(start_time).as_millis() as u32;
@@ -26,16 +32,16 @@ impl Prof for ProcNet {
                     .send(Event {
                         timestamp_millis,
                         description: format!("Net Recieve {}", dev),
-                        value: Some(recieve - *r_prev),
-                        unit: "kB".to_string()
+                        value: recieve - *r_prev,
+                        unit: "kB".to_string(),
                     })
                     .unwrap();
                 sender
                     .send(Event {
                         timestamp_millis,
                         description: format!("Net Transmit {}", dev),
-                        value: Some(transmit - *t_prev),
-                        unit: "kB".to_string()
+                        value: transmit - *t_prev,
+                        unit: "kB".to_string(),
                     })
                     .unwrap();
                 *r_prev = recieve;

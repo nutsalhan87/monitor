@@ -1,7 +1,8 @@
 use std::{
     fs::{read_dir, read_to_string},
+    sync::{mpsc::Sender, Arc, RwLock},
     thread,
-    time::{Duration, Instant}, sync::mpsc::Sender,
+    time::{Duration, Instant},
 };
 
 use super::{Event, Prof};
@@ -14,11 +15,12 @@ impl Prof for ProcCpu {
         freq_millis: u32,
         pid: u32,
         sender: Sender<Event>,
+        is_program_end: Arc<RwLock<bool>>,
     ) {
         let start_time = Instant::now();
         let (mut utime_prev, mut stime_prev) = ustime(pid);
         let mut cpu_time_prev = cpu_time();
-        loop {
+        while !*is_program_end.read().unwrap() {
             thread::sleep(Duration::from_millis(freq_millis as u64));
             let timestamp_millis = Instant::now().duration_since(start_time).as_millis() as u32;
             let (utime, stime) = ustime(pid);
@@ -29,35 +31,35 @@ impl Prof for ProcCpu {
                 .send(Event {
                     timestamp_millis,
                     description: "user time".to_string(),
-                    value: Some(utime_dif),
-                    unit: "ticks".to_string()
+                    value: utime_dif,
+                    unit: "ticks".to_string(),
                 })
                 .unwrap();
             sender
                 .send(Event {
                     timestamp_millis,
                     description: "kernel time".to_string(),
-                    value: Some(stime_dif),
-                    unit: "ticks".to_string()
+                    value: stime_dif,
+                    unit: "ticks".to_string(),
                 })
                 .unwrap();
             sender
                 .send(Event {
                     timestamp_millis,
                     description: "usage time".to_string(),
-                    value: Some(utime_dif + stime_dif),
-                    unit: "ticks".to_string()
+                    value: utime_dif + stime_dif,
+                    unit: "ticks".to_string(),
                 })
                 .unwrap();
             if cpu_time_dif != 0 {
                 sender
-                .send(Event {
-                    timestamp_millis,
-                    description: "usage".to_string(),
-                    value: Some((utime_dif + stime_dif) * 100 / cpu_time_dif),
-                    unit: "%".to_string()
-                })
-                .unwrap();
+                    .send(Event {
+                        timestamp_millis,
+                        description: "usage".to_string(),
+                        value: (utime_dif + stime_dif) * 100 / cpu_time_dif,
+                        unit: "%".to_string(),
+                    })
+                    .unwrap();
             }
             utime_prev = utime;
             stime_prev = stime;

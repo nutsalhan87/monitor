@@ -6,25 +6,47 @@ Only for Linux. Need root priveleges.
 
 ## Using
 
-`monitor {--help} | {-f N [-p perf_event1,...] [-e event1,...] -- <program>}`
-Where
-- `--help` -- help
-- `-f N` -- N is frequency of statistics collecting in milliseconds
-- `-p perf_event1,...` -- list of perf events without spaces separated by commas. When you specify this key, minotor running perf tool so you need it installed on your system
-- `-e event1,...` -- list of built-in events without spaces separated by commas.
-  List of build-in events:
-  - maps -- memory for process
-  - mem -- memory for whole system
-  - io -- read/write bytes for process
-  - cpu -- user/kernel/usage time for process
-  - net -- recieve/transmit for every net devies for process (works bad)
-- `<program>` -- any program with its arguments. Not a string
+`monitor [OPTIONS] -f <FREQ_MILLIS> -o <OUTPUT> -- <CMD>...`
+- Arguments:
+  - \<CMD\>...
+
+- Options:
+  - `-f` \<FREQ_MILLIS\>\
+    Sampling frequency in milliseconds
+
+  - `-e` \<EVENTS\>\
+    List of events delimited by ','\
+    Possible values:
+    * `cpu` - CPU. Contains:
+        - User time in ticks
+        - Kernel time in ticks
+        - Usage time in ticks
+        - Usage in percentage
+    * `io` - Input/Output. Contains:
+        - Read bytes
+        - Write bytes
+    * `mem` - System memory
+    * `maps` - Process memory
+    * `net` - Network. Contains:
+        - Recieved kbytes
+        - Transmitted kbytes
+
+  - `-p` \<PERF_EVENTS\>\
+    List of perf events delimited by ','; requires perf
+
+  - `-o` \<OUTPUT\>\
+    [possible values: plots, text]
+
+  - `-h`, --help\
+    Print help (see a summary with '-h')
+
+  - `-V`, --version\
+    Print version
 
 Plots will be saved in the directory `plots` in the program path.
-Also program creates file `perf.pipe` while running and deletes it at the end.
 
 ## Building
-Requerments:
+Requirements:
 - perf tool for -p key
 - rustc, cargo
 - pkg-config

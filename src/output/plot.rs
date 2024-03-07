@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     ops::Range,
-    path::Path,
+    path::Path, fs,
 };
 
 use plotters::prelude::*;
@@ -16,27 +16,26 @@ pub struct PlotOutput<'a> {
 
 impl<'a> PlotOutput<'a> {
     pub fn new(dir: &'a str) -> Self {
-        let dir = Path::new(dir);
-        if !dir.is_dir() {
-            panic!("Path {} isn't a dir", dir.as_os_str().to_str().unwrap());
+        if let Err(_) = fs::read_dir(dir) {
+            fs::create_dir(dir).unwrap();
         }
-        PlotOutput { dir }
+        PlotOutput { dir: Path::new(dir) }
     }
 }
 
 impl<'a> Outputter for PlotOutput<'a> {
-    fn output(&mut self, events: &[Event]) {
+    fn output(&self, events: &[Event]) {
         let grouped = group_by(events.iter(), |v| v.description.clone());
         for (description, event_group) in grouped {
             let png_path = self.dir.join(format!("{}.png", description));
             let xy = event_group
                 .iter()
-                .map(|v| (v.timestamp_millis, v.value.unwrap()));
+                .map(|v| (v.timestamp_millis, v.value));
             let x_spec = Range {
                 start: event_group.first().unwrap().timestamp_millis as f32,
                 end: event_group.last().unwrap().timestamp_millis as f32,
             };
-            let y_spec = 0f32..event_group.iter().map(|v| v.value.unwrap()).max().unwrap() as f32;
+            let y_spec = 0f32..event_group.iter().map(|v| v.value).max().unwrap() as f32;
             draw(
                 &description,
                 &event_group[0].unit,

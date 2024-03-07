@@ -1,137 +1,101 @@
-#![feature(map_try_insert)]
-
+mod cli_args;
 mod output;
 mod prof;
 mod util;
 
-use std::{
-    env,
-    error::Error,
-    fs::{File, self},
-    process::{Child, Command, Stdio},
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
-
-use output::{Outputter, PlotOutput};
+use clap::Parser;
+use cli_args::{CliArgs, OutputType};
+use output::Outputter;
 use prof::{Event, PerfStat, Prof};
+use std::{
+    error::Error,
+    process::{Child, Command, Stdio},
+    sync::{mpsc, Arc, RwLock},
+    thread,
+};
 
 struct Args {
     freq_millis: u32,
     profs: Vec<Box<dyn Prof>>,
     subprocess: Child,
     perf_flag: bool,
+    output: OutputType,
 }
 
-fn parse_args() -> Result<Args, String> {
-    let mut args_iter = env::args();
-    args_iter.next();
-    let mut freq_millis: Option<u32> = None;
-    let mut profs = Vec::new();
-    let mut perf_flag = false;
-    let mut perf_events = String::new();
-    let help =
-        "monitor {--help} | {-f N [-p perf_event1,...] [-e event1,...] -- <program>}".to_string();
+impl From<CliArgs> for Args {
+    fn from(value: CliArgs) -> Self {
+        let profs = prof::profs(value.events);
+        let perf_flag = !value.perf_events.is_empty();
 
-    while let Some(arg) = args_iter.next() {
-        match arg.as_str() {
-            "--help" => {
-                return Err(help);
-            }
-            "-f" => match args_iter.next() {
-                Some(f) => {
-                    freq_millis = Some(f.parse().unwrap());
-                }
-                None => return Err(help),
-            },
-            "-p" => match args_iter.next() {
-                Some(events) => {
-                    perf_flag = true;
-                    perf_events = events;
-                }
-                None => return Err(help),
-            },
-            "-e" => match args_iter.next() {
-                Some(events) => {
-                    profs = prof::profs(&events);
-                }
-                None => return Err(help),
-            },
-            "--" => {
-                break;
-            }
-            _ => return Err(help),
+        let mut cmd;
+        if perf_flag {
+            cmd = Command::new("perf");
+            cmd.args([
+                "stat",
+                "-j",
+                "-I",
+                &value.freq_millis.to_string(),
+                "-e",
+                &value.perf_events.join(","),
+            ]);
+            cmd.args(value.cmd)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+        } else {
+            cmd = Command::new(&value.cmd[0]);
+            cmd.args(&value.cmd[1..]).stdout(Stdio::null());
+        }
+        let subprocess = cmd.spawn().unwrap();
+
+        Args {
+            freq_millis: value.freq_millis,
+            profs,
+            subprocess,
+            perf_flag,
+            output: value.output,
         }
     }
-
-    let cmd_line = args_iter.collect::<Vec<_>>();
-    if cmd_line.len() == 0 || freq_millis == None {
-        return Err(help);
-    }
-    let freq_millis = freq_millis.unwrap();
-
-    let subprocess;
-    if perf_flag {
-        File::create("perf.pipe").unwrap();
-        let mut cmd = Command::new("perf");
-        cmd.args([
-            "stat",
-            "-j",
-            "-I",
-            &freq_millis.to_string(),
-            "-e",
-            &perf_events,
-            "-o",
-            "perf.pipe",
-        ]);
-        cmd.args(&cmd_line)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        subprocess = cmd.spawn().unwrap();
-    } else {
-        let mut cmd = Command::new(&cmd_line[0]);
-        cmd.args(&cmd_line[1..]).stdout(Stdio::null());
-        subprocess = cmd.spawn().unwrap();
-    }
-
-    Ok(Args {
-        freq_millis,
-        profs,
-        subprocess,
-        perf_flag,
-    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let cli_args = CliArgs::parse();
     if !nix::unistd::geteuid().is_root() {
         Err("User must have root privileges")?
     }
-    if let Err(_) = fs::read_dir("plots") {
-        fs::create_dir("plots")?;
-    }
 
+    let args: Args = cli_args.into();
     let (sender, reciever) = mpsc::channel::<Event>();
-    let mut args = parse_args()?;
+    let is_program_end = Arc::new(RwLock::new(false));
     let pid = args.subprocess.id();
+
     for prof in args.profs {
         let sender = sender.clone();
-        thread::spawn(move || prof.profiler(args.freq_millis, pid, sender));
+        let is_program_end = is_program_end.clone();
+        thread::spawn(move || prof.profiler(args.freq_millis, pid, sender, is_program_end));
     }
 
-    args.subprocess.wait()?;
+    let output = args.subprocess.wait_with_output()?;
+    {
+        *is_program_end.write().unwrap() = true;
+    }
+
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8(output.stderr)?);
+        return Ok(());
+    }
+
     let mut events = Vec::new();
-    while let Ok(event) = reciever.recv_timeout(Duration::from_millis(1)) {
+    while let Ok(event) = reciever.try_recv() {
         events.push(event);
     }
+
     if args.perf_flag {
-        let mut perf_events = PerfStat::new(File::open("perf.pipe")?);
+        let mut perf_events = PerfStat::parse_events(std::str::from_utf8(&output.stderr)?);
         events.append(&mut perf_events);
-        std::fs::remove_file("perf.pipe")?;
     }
     events.sort_by_key(|v| v.timestamp_millis);
 
-    PlotOutput::new("plots").output(&events);
+    args.output.output(&events);
 
     Ok(())
 }

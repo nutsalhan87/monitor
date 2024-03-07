@@ -1,6 +1,6 @@
 use std::{
     fs::{read_dir, read_to_string},
-    sync::mpsc::Sender,
+    sync::{mpsc::Sender, RwLock, Arc},
     thread,
     time::{Duration, Instant},
 };
@@ -10,11 +10,17 @@ use super::{Event, Prof};
 pub struct ProcIo {}
 
 impl Prof for ProcIo {
-    fn profiler(&self, freq_millis: u32, pid: u32, sender: Sender<Event>) {
+    fn profiler(
+        &self,
+        freq_millis: u32,
+        pid: u32,
+        sender: Sender<Event>,
+        is_program_end: Arc<RwLock<bool>>,
+    ) {
         let mut read_bytes_prev = 0;
         let mut write_bytes_prev = 0;
         let start_time = Instant::now();
-        loop {
+        while !*is_program_end.read().unwrap() {
             thread::sleep(Duration::from_millis(freq_millis.into()));
             let timestamp_millis = Instant::now().duration_since(start_time).as_millis() as u32;
             let (read_bytes, write_bytes) = rwbytes(pid);
@@ -22,16 +28,16 @@ impl Prof for ProcIo {
                 .send(Event {
                     timestamp_millis,
                     description: "io read".to_string(),
-                    value: Some(read_bytes - read_bytes_prev),
-                    unit: "bytes".to_string()
+                    value: read_bytes - read_bytes_prev,
+                    unit: "bytes".to_string(),
                 })
                 .unwrap();
             sender
                 .send(Event {
                     timestamp_millis,
                     description: "io write".to_string(),
-                    value: Some(write_bytes - write_bytes_prev),
-                    unit: "bytes".to_string()
+                    value: write_bytes - write_bytes_prev,
+                    unit: "bytes".to_string(),
                 })
                 .unwrap();
             read_bytes_prev = read_bytes;

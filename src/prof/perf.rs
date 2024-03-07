@@ -1,8 +1,3 @@
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-};
-
 use serde::{Deserialize, Deserializer};
 
 use super::Event;
@@ -27,25 +22,31 @@ pub struct PerfStat {
     event: String,
 }
 
-impl Into<Event> for PerfStat {
-    fn into(self) -> Event {
-        Event {
-            timestamp_millis: (self.interval * 1000f32) as u32,
-            description: self.event,
-            value: self.counter_value,
-            unit: self.unit,
+impl TryInto<Event> for PerfStat {
+    type Error = ();
+
+    fn try_into(self) -> Result<Event, Self::Error> {
+        if let Some(value) = self.counter_value {
+            Ok(Event {
+                timestamp_millis: (self.interval * 1000f32) as u32,
+                description: self.event,
+                value,
+                unit: self.unit,
+            })
+        } else {
+            Err(())
         }
     }
 }
 
 impl PerfStat {
-    pub fn new(pipe: File) -> Vec<Event> {
-        let pipe_reader = BufReader::new(pipe);
-        let pipe_lines = pipe_reader.lines();
-        let mut stats: Vec<Event> = Vec::new();
-        for line in pipe_lines.map(|v| v.unwrap()).skip(2) {
-            stats.push(serde_json::de::from_str::<PerfStat>(&line).unwrap().into());
-        }
-        stats
+    pub fn parse_events(output: &str) -> Vec<Event> {
+        output
+            .lines()
+            .into_iter()
+            .filter_map(|line| {
+                serde_json::de::from_str::<PerfStat>(line).map_or(None, |v| v.try_into().ok())
+            })
+            .collect()
     }
 }
